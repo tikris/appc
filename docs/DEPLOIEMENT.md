@@ -68,6 +68,24 @@ Règles pour l'identifiant (`slug`) : 3 à 40 caractères, minuscules, chiffres 
 - [ ] En-têtes présents : `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`
 - [ ] Un essai de 9 codes faux de suite déclenche le blocage (« Trop d'essais »)
 
+## 3 bis. Variante OVHcloud : déploiement Git par webhook
+
+Sur un hébergement web OVHcloud, chaque `git push` sur `main` peut mettre le site à jour automatiquement ([documentation OVHcloud](https://docs.ovhcloud.com/fr/guides/web-cloud/web-hosting/git-integration-webhosting)).
+
+1. **Préparer l'hébergement** : PHP ≥ 8.1 sélectionné pour le site ; domaine `appc.paris` attaché au site (multisite) ; dossier d'installation **vide** (OVHcloud refuse l'association sinon).
+2. **Associer le dépôt** : espace client OVHcloud, *Web Cloud > Hébergements > Mes sites > ⁝ > Configurer Git* ; dépôt `https://github.com/tikris/appc` (public : aucune clé SSH), branche `main`. **Valider le formulaire** : copier l'URL du webhook ne suffit pas. L'encadré *Informations sur le dernier déploiement* donne la cause d'un échec.
+3. **Ajouter le webhook dans GitHub** : *Settings > Webhooks > Add webhook* ; *Payload URL* = URL du webhook affichée par OVHcloud ; *Content type* = `application/json` ; événement *Just the push event*.
+4. **Tester** : onglet *Recent Deliveries* du webhook. Réponse **200** = déploiement lancé. Réponse **404** « could not retrieve the website » = l'association Git n'est pas (encore) active côté OVHcloud : reprendre l'étape 2, attendre quelques minutes, puis *Redeliver*.
+5. **Après le premier déploiement** : déposer `config/config.php` (SFTP, fichier non versionné), vérifier `https://appc.paris/`, puis créer les instances depuis `/_super`.
+
+> **L'URL du webhook est un secret** : ne la collez jamais dans un ticket, un commit ou un message public. Si elle a fuité, régénérez-la dans OVHcloud (dissocier puis réassocier Git) et mettez à jour le webhook GitHub.
+
+Points d'attention :
+
+- Ne modifiez pas les fichiers versionnés directement sur le serveur : un conflit bloquerait les déploiements suivants.
+- `config/config.php` et `data/` sont ignorés par git, mais OVHcloud ne précise pas son comportement face aux fichiers non versionnés lors d'un déploiement forcé : **planifiez `bin/backup.php`** (tâche planifiée) et gardez une copie hors du serveur.
+- Le dossier `data/` reste protégé par `data/.htaccess` ; ne le déplacez hors du docroot (`data_dir`) que si vous connaissez le chemin absolu exact.
+
 ## 4. Sauvegardes
 
 Les données d'un établissement tiennent dans **un fichier** `data/<slug>.sqlite`. Sauvegarde cohérente, y compris site en ligne :
