@@ -1,0 +1,10 @@
+# Repli pour les hébergements où la racine web (docroot) ne peut pas être public/ :
+# tout est réécrit vers public/, donc src/, config/, data/ et migrations/ restent inaccessibles.
+# Si le docroot du domaine pointe déjà sur public/, ce fichier n'est jamais lu.
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_URI} !^/public/
+  RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>

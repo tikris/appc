@@ -1,0 +1,16 @@
+# Front controller : tout ce qui n'est pas un fichier existant passe par index.php
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  RewriteRule ^ index.php [L]
+</IfModule>
+
+# Jamais de bases ni de sources servies telles quelles
+<FilesMatch "\.(sqlite|db|sql|md|json|lock|dist|env)$">
+  Require all denied
+</FilesMatch>

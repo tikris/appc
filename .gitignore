@@ -1,0 +1,10 @@
+# Secrets et données : ne jamais versionner (le dépôt est public)
+/config/config.php
+/data/*
+!/data/.htaccess
+!/data/.gitkeep
+
+# Divers
+.DS_Store
+*.log
+.env

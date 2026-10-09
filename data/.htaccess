@@ -1,0 +1,2 @@
+# Les bases SQLite ne doivent jamais être servies.
+Require all denied
