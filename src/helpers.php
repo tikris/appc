@@ -23,6 +23,15 @@ function fmt_datetime(int $ts): string
     return date('d/m/Y \à H\hi', $ts);
 }
 
+/** Date courte en français pour l'agenda : « mar. 12 nov. », suivie de l'heure si elle n'est pas minuit. */
+function fmt_day(int $ts): string
+{
+    $days = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+    $months = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+    $out = $days[(int) date('w', $ts)] . ' ' . date('j', $ts) . ' ' . $months[(int) date('n', $ts) - 1];
+    return date('H:i', $ts) === '00:00' ? $out : $out . ' à ' . date('G\hi', $ts);
+}
+
 /** Valeur pour <input type="datetime-local"> (heure de Paris). */
 function input_datetime(?int $ts): string
 {
@@ -52,6 +61,16 @@ function clean_text(mixed $s): string
     return trim($s);
 }
 
+/** Champs cachés d'un formulaire POST : jeton CSRF, action et paramètres. */
+function post_fields(string $action, array $fields = []): string
+{
+    $out = \Appc\Csrf::field() . '<input type="hidden" name="action" value="' . h($action) . '">';
+    foreach ($fields as $k => $v) {
+        $out .= '<input type="hidden" name="' . h((string) $k) . '" value="' . h((string) $v) . '">';
+    }
+    return $out;
+}
+
 function abort(int $status, string $message = ''): never
 {
     throw new \Appc\HttpError($status, $message);
@@ -71,5 +90,28 @@ function render(string $view, array $vars = [], int $status = 200): never
     require APPC_ROOT . '/views/' . $view . '.php';
     $content = ob_get_clean();
     require APPC_ROOT . '/views/layout.php';
+    exit;
+}
+
+/**
+ * Envoie un fichier CSV (séparateur « ; », UTF-8 avec BOM : lisible par Excel et LibreOffice), puis termine la requête.
+ * Les cellules commençant par = + - @ sont préfixées d'une apostrophe (injection de formules).
+ */
+function send_csv(string $filename, array $header, array $rows): never
+{
+    $safe = static function (mixed $v): string {
+        $s = (string) $v;
+        return $s !== '' && strpbrk($s[0], "=+-@\t\r") !== false ? "'" . $s : $s;
+    };
+    \Appc\Http::securityHeaders();
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    echo "\xEF\xBB\xBF";
+    $out = fopen('php://output', 'w');
+    fputcsv($out, $header, ';', '"', '', "\r\n");
+    foreach ($rows as $row) {
+        fputcsv($out, array_map($safe, $row), ';', '"', '', "\r\n");
+    }
+    fclose($out);
     exit;
 }

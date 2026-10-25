@@ -1,8 +1,9 @@
 <?php
 declare(strict_types=1);
 
-// Usage : php bin/create-instance.php <identifiant> "<Nom affiché>"
-// Exemple : php bin/create-instance.php master "Portail maître APPC"
+// Usage : php bin/create-instance.php <identifiant> "<Nom affiché>" [modèle]
+// Modèles : elementaire (par défaut), maternelle, college, vide — voir src/Templates.php.
+// Exemple : php bin/create-instance.php ecole-etienne-marcel "École Étienne Marcel" elementaire
 // Équivalent en ligne de commande de la console /_super.
 if (PHP_SAPI !== 'cli') {
     exit(1);
@@ -10,15 +11,15 @@ if (PHP_SAPI !== 'cli') {
 
 require dirname(__DIR__) . '/src/bootstrap.php';
 
-[, $slug, $name] = $argv + [null, null, null];
+[, $slug, $name, $template] = $argv + [null, null, null, Appc\Templates::DEFAULT];
 if (!is_string($slug) || !is_string($name)) {
-    fwrite(STDERR, "Usage : php bin/create-instance.php <identifiant> \"<Nom affiché>\"\n");
+    fwrite(STDERR, "Usage : php bin/create-instance.php <identifiant> \"<Nom affiché>\" [modèle]\n");
     exit(2);
 }
 
 try {
     $password = Appc\Access::generatePassword();
-    Appc\Instance::create($slug, $name, $password);
+    Appc\Instance::create($slug, $name, $password, $template);
 } catch (InvalidArgumentException | Appc\ConfigError $e) {
     fwrite(STDERR, $e->getMessage() . PHP_EOL);
     exit(1);

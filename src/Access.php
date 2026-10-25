@@ -144,6 +144,16 @@ final class Access
         return self::$participants[$in->slug] = $row;
     }
 
+    /**
+     * Identifiant dérivé du jeton du navigateur pour un usage donné (ex. « signup »), sans lien calculable
+     * avec participants.token_hash : la base seule ne permet pas de relier deux usages entre eux.
+     * À n'appeler qu'après avoir vérifié que participant() n'est pas null.
+     */
+    public static function pseudonym(string $purpose): string
+    {
+        return hash('sha256', $purpose . '|' . (string) Http::cookie(self::P_COOKIE));
+    }
+
     // ── Administrateur ──────────────────────────────────────────────────────
 
     public static function isAdmin(Instance $in): bool

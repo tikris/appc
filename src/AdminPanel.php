@@ -3,18 +3,23 @@ declare(strict_types=1);
 
 namespace Appc;
 
-/** Espace administrateur d'un établissement (généralement le représentant des parents). */
+/**
+ * Espace administrateur d'un établissement (généralement le représentant des parents) : activités,
+ * annonces, codes d'accès, réglages. La gestion détaillée d'une activité est dans ActivityAdmin.
+ */
 final class AdminPanel
 {
+    public const POST_TITLE_MAX = 120;
+    public const POST_BODY_MAX = 2000;
+    public const POST_LOCATION_MAX = 80;
+
     private const FLASH = [
         'settings_saved'   => 'Réglages enregistrés.',
-        'closed'           => 'Les votes sont clos. Les résultats restent visibles.',
-        'reopened'         => 'Les votes sont de nouveau ouverts.',
+        'activity_deleted' => 'Activité supprimée.',
+        'post_saved'       => 'Annonce publiée.',
+        'post_deleted'     => 'Annonce supprimée.',
         'code_created'     => 'Code créé. Transmettez-le aux parents concernés.',
         'code_revoked'     => 'Code révoqué : les personnes entrées avec ce code n\'ont plus accès.',
-        'theme_added'      => 'Thème ajouté.',
-        'theme_updated'    => 'Thème modifié.',
-        'theme_deleted'    => 'Thème supprimé.',
         'password_changed' => 'Mot de passe modifié.',
     ];
 
@@ -82,46 +87,59 @@ final class AdminPanel
             case 'save_settings':
                 $name = $text('name');
                 $intro = $text('intro');
-                $max = (int) ($_POST['max_ideas'] ?? 0);
-                $rawStart = trim((string) ($_POST['opens_at'] ?? ''));
-                $start = parse_datetime($rawStart);
-                $rawEnd = trim((string) ($_POST['closes_at'] ?? ''));
-                $end = parse_datetime($rawEnd);
                 if ($name === '' || mb_strlen($name) > 80) {
                     return 'Le nom doit faire entre 1 et 80 caractères.';
                 }
                 if (mb_strlen($intro) > 600) {
                     return 'Le message d\'accueil est limité à 600 caractères.';
                 }
-                if ($max < 1 || $max > 50) {
-                    return 'Le nombre maximal de propositions doit être compris entre 1 et 50.';
-                }
-                if ($rawStart !== '' && $start === null) {
-                    return 'Date de début invalide.';
-                }
-                if ($rawEnd !== '' && $end === null) {
-                    return 'Date de fin invalide.';
-                }
-                if ($start !== null && $end !== null && $end <= $start) {
-                    return 'La date de fin doit être postérieure à la date de début.';
-                }
                 $in->set('name', $name);
                 $in->set('intro', $intro);
-                $in->set('max_ideas', (string) $max);
-                $in->set('opens_at', $start === null ? '' : (string) $start);
-                $in->set('closes_at', $end === null ? '' : (string) $end);
                 $done('settings_saved');
 
-            case 'close_now':
-                $in->set('closed_at', (string) time());
-                $done('closed');
-
-            case 'reopen':
-                $in->set('closed_at', '');
-                if ($in->closesAt() !== null && $in->closesAt() <= time()) {
-                    $in->set('closes_at', ''); // l'échéance dépassée rouvrirait puis refermerait aussitôt
+            case 'create_activity':
+                $kind = (string) ($_POST['kind'] ?? '');
+                $title = $text('title');
+                if (!Activity::validKind($kind)) {
+                    return 'Choisissez un type d\'activité.';
                 }
-                $done('reopened');
+                if ($title === '' || mb_strlen($title) > Activity::TITLE_MAX) {
+                    return sprintf('Le titre doit faire entre 1 et %d caractères.', Activity::TITLE_MAX);
+                }
+                $id = $repo->createActivity($kind, $title);
+                Http::redirect(url($in->slug . '/admin/activite/' . $id) . '?m=created');
+
+            case 'save_post':
+                $id = (int) ($_POST['post_id'] ?? 0);
+                if ($id > 0 && $repo->post($id) === null) {
+                    return 'Annonce introuvable.';
+                }
+                $rawEvent = trim((string) ($_POST['event_at'] ?? ''));
+                $p = [
+                    'title'    => $text('title'),
+                    'body'     => $text('body'),
+                    'event_at' => parse_datetime($rawEvent),
+                    'location' => $text('location'),
+                    'pinned'   => ($_POST['pinned'] ?? '') === '1',
+                ];
+                if ($p['title'] === '' || mb_strlen($p['title']) > self::POST_TITLE_MAX) {
+                    return sprintf('Le titre de l\'annonce doit faire entre 1 et %d caractères.', self::POST_TITLE_MAX);
+                }
+                if (mb_strlen($p['body']) > self::POST_BODY_MAX) {
+                    return sprintf('Le texte de l\'annonce est limité à %d caractères.', self::POST_BODY_MAX);
+                }
+                if (mb_strlen($p['location']) > self::POST_LOCATION_MAX) {
+                    return sprintf('Le lieu est limité à %d caractères.', self::POST_LOCATION_MAX);
+                }
+                if ($rawEvent !== '' && $p['event_at'] === null) {
+                    return 'Date de l\'événement invalide.';
+                }
+                $repo->savePost($id > 0 ? $id : null, $p);
+                $done('post_saved');
+
+            case 'delete_post':
+                $repo->deletePost((int) ($_POST['post_id'] ?? 0));
+                $done('post_deleted');
 
             case 'create_code':
                 $label = $text('label');
@@ -148,46 +166,6 @@ final class AdminPanel
                 $repo->revokeCode((int) ($_POST['code_id'] ?? 0));
                 $done('code_revoked');
 
-            case 'add_theme':
-                $name = $text('name');
-                $color = (int) ($_POST['color'] ?? 0);
-                if ($name === '' || mb_strlen($name) > 60 || $color < 1 || $color > 8) {
-                    return 'Nom (60 caractères maximum) et couleur sont obligatoires.';
-                }
-                if (count($repo->themes()) >= 12) {
-                    return 'Douze thèmes maximum.';
-                }
-                $repo->addTheme($name, $color);
-                $done('theme_added');
-
-            case 'update_theme':
-                $id = (int) ($_POST['theme_id'] ?? 0);
-                $name = $text('name');
-                $color = (int) ($_POST['color'] ?? 0);
-                $pos = (int) ($_POST['position'] ?? 0);
-                if ($repo->theme($id) === null) {
-                    return 'Thème introuvable.';
-                }
-                if ($name === '' || mb_strlen($name) > 60 || $color < 1 || $color > 8 || $pos < 1 || $pos > 99) {
-                    return 'Nom (60 caractères maximum), couleur et position (1 à 99) sont obligatoires.';
-                }
-                $repo->updateTheme($id, $name, $color, $pos);
-                $done('theme_updated');
-
-            case 'delete_theme':
-                $id = (int) ($_POST['theme_id'] ?? 0);
-                if ($repo->theme($id) === null) {
-                    return 'Thème introuvable.';
-                }
-                if (($repo->ideaCountsByTheme()[$id] ?? 0) > 0) {
-                    return 'Ce thème contient des propositions : supprimez-les d\'abord, ou renommez le thème.';
-                }
-                if (count($repo->themes()) <= 1) {
-                    return 'Conservez au moins un thème.';
-                }
-                $repo->deleteTheme($id);
-                $done('theme_deleted');
-
             case 'change_password':
                 $new = (string) ($_POST['new_password'] ?? '');
                 if (!Access::checkAdminPassword($in, (string) ($_POST['current_password'] ?? ''))) {
@@ -212,6 +190,7 @@ final class AdminPanel
     {
         $in = $this->in;
         $flashKey = is_string($_GET['m'] ?? null) ? $_GET['m'] : '';
+        $editPost = isset($_GET['post']) ? $repo->post((int) $_GET['post']) : null;
         render('admin', [
             'in'         => $in,
             'pageTitle'  => 'Administration — ' . $in->name(),
@@ -219,37 +198,13 @@ final class AdminPanel
             'headerLink' => [url($in->slug . '/'), 'Retour au portail'],
             'flash'      => self::FLASH[$flashKey] ?? null,
             'error'      => $error,
-            'open'       => $in->isOpen(),
-            'phase'      => $in->phase(),
-            'themes'     => $repo->themes(),
-            'themeCount' => $repo->ideaCountsByTheme(),
+            'activities' => $repo->activities(),
+            'counts'     => $repo->activityCounts(),
+            'posts'      => $repo->posts(),
+            'editPost'   => $editPost,
             'codes'      => $repo->codes(),
             'stats'      => $repo->stats(),
             'mustChange' => $in->setting('must_change_pw', '0') === '1',
         ], $error === null ? 200 : 422);
-    }
-
-    public function export(): never
-    {
-        $in = $this->in;
-        if (!Access::isAdmin($in)) {
-            abort(403, 'Accès réservé à l\'administrateur.');
-        }
-        $csvSafe = static function (mixed $v): string {
-            $s = (string) $v;
-            // Neutralise l'injection de formules dans les tableurs.
-            return $s !== '' && strpbrk($s[0], "=+-@\t\r") !== false ? "'" . $s : $s;
-        };
-        Http::securityHeaders();
-        header('Content-Type: text/csv; charset=UTF-8');
-        header('Content-Disposition: attachment; filename="appc-' . $in->slug . '-' . date('Ymd') . '.csv"');
-        echo "\xEF\xBB\xBF"; // BOM : Excel reconnaît l'UTF-8
-        $out = fopen('php://output', 'w');
-        fputcsv($out, ['id', 'theme', 'titre', 'description', 'votes', 'creee_le', 'modifiee_le', 'notes_de_contexte'], ';', '"', '', "\r\n");
-        foreach ((new Repo($in->db))->exportRows() as $row) {
-            fputcsv($out, array_map($csvSafe, $row), ';', '"', '', "\r\n");
-        }
-        fclose($out);
-        exit;
     }
 }

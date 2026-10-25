@@ -4,8 +4,8 @@ declare(strict_types=1);
 namespace Appc;
 
 /**
- * Console /_super : création des instances (un établissement = une instance) et réinitialisation
- * du mot de passe de leur administrateur. Désactivée tant que super_password_hash est vide.
+ * Console /_super : création des instances (un établissement = une instance, préremplie selon un modèle)
+ * et réinitialisation du mot de passe de leur administrateur. Désactivée tant que super_password_hash est vide.
  */
 final class SuperAdmin
 {
@@ -74,7 +74,7 @@ final class SuperAdmin
             case 'create':
                 $slug = strtolower(trim((string) ($_POST['slug'] ?? '')));
                 $password = Access::generatePassword();
-                Instance::create($slug, (string) ($_POST['name'] ?? ''), $password);
+                Instance::create($slug, (string) ($_POST['name'] ?? ''), $password, (string) ($_POST['template'] ?? Templates::DEFAULT));
                 return ['kind' => 'created', 'slug' => $slug, 'password' => $password];
 
             case 'reset_password':
@@ -89,7 +89,7 @@ final class SuperAdmin
         throw new \InvalidArgumentException('Action inconnue.');
     }
 
-    /** @return list<array{slug:string,name:string,phase:string,stats:array,created:?int}> */
+    /** @return list<array{slug:string,name:string,stats:array,created:?int}> */
     private static function overview(): array
     {
         $rows = [];
@@ -102,7 +102,6 @@ final class SuperAdmin
             $rows[] = [
                 'slug'    => $slug,
                 'name'    => $in->name(),
-                'phase'   => $in->phase(),
                 'stats'   => (new Repo($in->db))->stats(),
                 'created' => $created !== null ? (int) $created : null,
             ];

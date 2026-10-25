@@ -1,8 +1,9 @@
 <?php
+use Appc\ConsultationPage as C;
 use Appc\Csrf;
 
 $slug = $in->slug;
-$home = url($slug . '/');
+$home = url($slug . '/activite/' . $activity->id);
 $themeQuery = $active !== null ? '&theme=' . (int) $active['id'] : '';
 $myId = $me !== null ? (int) $me['id'] : 0;
 $plural = static fn(int $n): string => $n > 1 ? 'votes' : 'vote';
@@ -16,29 +17,8 @@ $hidden = static function (array $fields) use ($active): string {
     }
     return $out;
 };
-$headerLink = $admin ? [url($slug . '/admin'), 'Administration'] : [url($slug . '/admin'), 'Admin'];
+require __DIR__ . '/_activity_head.php';
 ?>
-
-<?php if ($flash): ?><div class="notice"><?= h($flash) ?></div><?php endif; ?>
-
-<?php if ($in->intro() !== ''): ?>
-  <div class="card intro"><?= nl2br(h($in->intro())) ?></div>
-<?php endif; ?>
-
-<!-- ── Bandeau d'état ───────────────────────────────────────────────────── -->
-<?php if ($phase === 'open'): ?>
-  <?php if ($in->closesAt() !== null): ?>
-    <div class="notice">🗓️ Vote ouvert jusqu'au <?= h(fmt_date($in->closesAt())) ?> — <strong>J-<?= (int) $in->daysLeft() ?></strong></div>
-  <?php endif; ?>
-<?php elseif ($phase === 'before'): ?>
-  <div class="closed-banner">🕐 La période de vote n'a pas encore commencé. Ouverture le <?= h(fmt_date((int) $in->opensAt())) ?>.</div>
-<?php else: ?>
-  <div class="closed-banner">🔒 La période de vote est terminée<?= $in->closedOn() !== null ? ' (clôturée le ' . h(fmt_date($in->closedOn())) . ')' : '' ?>. Résultats ci-dessous.</div>
-<?php endif; ?>
-
-<?php if ($me === null && $admin): ?>
-  <div class="notice">Vous consultez le portail en tant qu'administrateur. Pour proposer ou voter, entrez avec un code participant.</div>
-<?php endif; ?>
 
 <!-- ── Ajout d'une idée ─────────────────────────────────────────────────── -->
 <?php if ($open && $me !== null && $themes): ?>
@@ -58,12 +38,12 @@ $headerLink = $admin ? [url($slug . '/admin'), 'Administration'] : [url($slug . 
       </select>
 
       <label for="title">Titre</label>
-      <input type="text" id="title" name="title" minlength="<?= $in->titleMin() ?>" maxlength="<?= $in->titleMax() ?>" placeholder="Résumez votre proposition en une phrase" value="<?= h($addErr ? ($old['title'] ?? '') : '') ?>" data-counter="title-len" required>
-      <div class="char-hint"><span id="title-len">0</span>/<?= $in->titleMax() ?></div>
+      <input type="text" id="title" name="title" minlength="<?= C::TITLE_MIN ?>" maxlength="<?= C::TITLE_MAX ?>" placeholder="Résumez votre proposition en une phrase" value="<?= h($addErr ? ($old['title'] ?? '') : '') ?>" data-counter="title-len" required>
+      <div class="char-hint"><span id="title-len">0</span>/<?= C::TITLE_MAX ?></div>
 
       <label for="desc">Description (facultatif)</label>
-      <textarea id="desc" name="description" maxlength="<?= $in->descMax() ?>" placeholder="Contexte, bénéfices attendus…" data-counter="desc-len"><?= h($addErr ? ($old['description'] ?? '') : '') ?></textarea>
-      <div class="char-hint"><span id="desc-len">0</span>/<?= $in->descMax() ?></div>
+      <textarea id="desc" name="description" maxlength="<?= C::DESC_MAX ?>" placeholder="Contexte, bénéfices attendus…" data-counter="desc-len"><?= h($addErr ? ($old['description'] ?? '') : '') ?></textarea>
+      <div class="char-hint"><span id="desc-len">0</span>/<?= C::DESC_MAX ?></div>
 
       <p class="muted small">Restez factuel : ne citez ni enfant ni personne nommément. Les propositions sont visibles de tous les participants.</p>
       <div class="btn-row"><button type="submit">Publier</button></div>
@@ -144,11 +124,11 @@ $headerLink = $admin ? [url($slug . '/admin'), 'Administration'] : [url($slug . 
             <?php endforeach; ?>
           </select>
           <label for="edit-title-<?= $id ?>">Titre</label>
-          <input type="text" id="edit-title-<?= $id ?>" name="title" minlength="<?= $in->titleMin() ?>" maxlength="<?= $in->titleMax() ?>" value="<?= h($err ? ($old['title'] ?? '') : $idea['title']) ?>" data-counter="edit-title-len-<?= $id ?>" required>
-          <div class="char-hint"><span id="edit-title-len-<?= $id ?>">0</span>/<?= $in->titleMax() ?></div>
+          <input type="text" id="edit-title-<?= $id ?>" name="title" minlength="<?= C::TITLE_MIN ?>" maxlength="<?= C::TITLE_MAX ?>" value="<?= h($err ? ($old['title'] ?? '') : $idea['title']) ?>" data-counter="edit-title-len-<?= $id ?>" required>
+          <div class="char-hint"><span id="edit-title-len-<?= $id ?>">0</span>/<?= C::TITLE_MAX ?></div>
           <label for="edit-desc-<?= $id ?>">Description (facultatif)</label>
-          <textarea id="edit-desc-<?= $id ?>" name="description" maxlength="<?= $in->descMax() ?>" data-counter="edit-desc-len-<?= $id ?>"><?= h($err ? ($old['description'] ?? '') : $idea['description']) ?></textarea>
-          <div class="char-hint"><span id="edit-desc-len-<?= $id ?>">0</span>/<?= $in->descMax() ?></div>
+          <textarea id="edit-desc-<?= $id ?>" name="description" maxlength="<?= C::DESC_MAX ?>" data-counter="edit-desc-len-<?= $id ?>"><?= h($err ? ($old['description'] ?? '') : $idea['description']) ?></textarea>
+          <div class="char-hint"><span id="edit-desc-len-<?= $id ?>">0</span>/<?= C::DESC_MAX ?></div>
           <div class="btn-row">
             <button type="submit">Enregistrer</button>
             <a class="btn secondary btn-sm" href="<?= h($home . ($active !== null ? '?theme=' . (int) $active['id'] : '')) ?>#idea-<?= $id ?>">Annuler</a>
@@ -200,8 +180,8 @@ $headerLink = $admin ? [url($slug . '/admin'), 'Administration'] : [url($slug . 
           <?= $hidden(['action' => 'save_note', 'idea_id' => $id]) ?>
           <?php if ($err && $formError): ?><div class="error"><?= h($formError) ?></div><?php endif; ?>
           <label for="note-<?= $id ?>">⚖️ Note de contexte (cadre légal, réglementaire…)</label>
-          <textarea id="note-<?= $id ?>" name="body" maxlength="<?= $in->noteMax() ?>" data-counter="note-len-<?= $id ?>" required><?= h($err ? ($old['body'] ?? '') : ($myNote['body'] ?? '')) ?></textarea>
-          <div class="char-hint"><span id="note-len-<?= $id ?>">0</span>/<?= $in->noteMax() ?></div>
+          <textarea id="note-<?= $id ?>" name="body" maxlength="<?= C::NOTE_MAX ?>" data-counter="note-len-<?= $id ?>" required><?= h($err ? ($old['body'] ?? '') : ($myNote['body'] ?? '')) ?></textarea>
+          <div class="char-hint"><span id="note-len-<?= $id ?>">0</span>/<?= C::NOTE_MAX ?></div>
           <div class="btn-row">
             <button type="submit">Publier la note</button>
             <a class="btn secondary btn-sm" href="<?= h($home . ($active !== null ? '?theme=' . (int) $active['id'] : '')) ?>#idea-<?= $id ?>">Annuler</a>
@@ -217,11 +197,4 @@ $headerLink = $admin ? [url($slug . '/admin'), 'Administration'] : [url($slug . 
 <?php endforeach; ?>
 </div>
 
-<?php if ($me !== null): ?>
-  <?php ob_start(); ?>
-  <form method="post" action="<?= h(url($slug . '/quitter')) ?>" class="inline">
-    <?= Csrf::field() ?>
-    <button type="submit" class="link-btn">Oublier cet appareil</button>
-  </form>
-  <?php $footerExtra = ob_get_clean(); ?>
-<?php endif; ?>
+<?php require __DIR__ . '/_leave.php'; ?>

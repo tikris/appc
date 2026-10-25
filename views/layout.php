@@ -10,7 +10,7 @@
 <body>
 
 <header>
-  <h1>💡 <?= h($heading ?? 'APPC') ?></h1>
+  <h1>🏫 <?= h($heading ?? 'APPC') ?></h1>
   <?php if (!empty($headerLink)): ?>
     <a href="<?= h($headerLink[0]) ?>"><?= h($headerLink[1]) ?></a>
   <?php endif; ?>
@@ -21,8 +21,8 @@
 </div>
 
 <footer>
-  <p>Portail proposé par l'association Parents à Paris Centre (APPC) pour faciliter les discussions et délibérations locales.</p>
-  <p>Aucun nom ni adresse e-mail n'est demandé. Un cookie technique mémorise votre accès sur cet appareil.</p>
+  <p>Portail proposé par l'association Parents à Paris Centre (APPC) aux parents d'élèves : consultations, sondages, inscriptions bénévoles et agenda.</p>
+  <p>Ni compte ni adresse e-mail : un cookie technique mémorise votre accès sur cet appareil. Seules les inscriptions bénévoles demandent un prénom (ou un pseudo).</p>
   <p><a href="https://github.com/tikris/appc">Code source libre (GPL-3.0)</a></p>
   <?= $footerExtra ?? '' ?>
 </footer>
