@@ -15,7 +15,9 @@
 | IP hachée (HMAC), horodatage des échecs | `attempts` | Anti-force-brute | Oui (pseudonymisée) ; purgée automatiquement après 24 h (à la tentative de connexion suivante) |
 | Hash du mot de passe administrateur | `settings` | Authentification | Non |
 
-**Prénoms non reliés aux votes.** Une inscription ne porte pas l'identifiant du participant mais `owner_hash = SHA-256("signup|" + jeton du navigateur)`. La base ne contient que `SHA-256(jeton)` côté participants : sans le jeton, que seul le navigateur détient, impossible de rapprocher un prénom des propositions, votes ou réponses de la même personne, même avec une copie de la base. Les inscriptions saisies par l'administrateur reçoivent un identifiant aléatoire.
+**Prénoms non reliés aux votes.** Une inscription ne porte pas l'identifiant du participant mais `owner_hash = SHA-256("signup|" + jeton du navigateur)`. La base ne contient que `SHA-256(jeton)` côté participants : sans le jeton, que seul le navigateur détient, il n'existe aucun lien direct entre un prénom et les propositions, votes ou réponses de la même personne. Les inscriptions saisies par l'administrateur reçoivent un identifiant aléatoire.
+
+**Limite : le recoupement par dates.** Votes, réponses et propositions sont horodatés à la seconde. Pour ne pas permettre de rapprocher une inscription d'une réponse envoyée quelques secondes avant, la date d'inscription est **arrondie au jour**. Dans un très petit établissement où une seule personne participe un jour donné, quelqu'un qui dispose d'une copie de la base (hébergeur, équipe technique, sauvegarde volée) pourrait encore faire le rapprochement : le pseudonymat protège des autres parents et de l'administrateur de l'interface, pas d'un accès complet aux données. C'est une raison de plus pour supprimer les inscriptions après l'événement.
 
 **Non collectés** : nom de famille, e-mail, téléphone, compte, adresse IP en clair, traceurs tiers, statistiques de fréquentation. Aucune ressource externe n'est chargée (pas de CDN, polices ou scripts tiers).
 

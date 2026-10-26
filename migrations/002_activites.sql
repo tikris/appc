@@ -84,8 +84,9 @@ CREATE TABLE slots (
 CREATE INDEX slots_activity ON slots(activity_id);
 
 -- Le prénom (ou pseudo) est la seule donnée personnelle du portail. Il n'est volontairement PAS relié
--- à participants : owner_hash dérive du jeton gardé par le navigateur, de sorte que même un accès à la
--- base ne permet pas de rattacher un prénom aux propositions ou aux votes d'un participant.
+-- à participants : owner_hash dérive du jeton gardé par le navigateur, sans lien direct en base avec les
+-- propositions ou les votes d'un participant. created_at est arrondi au jour par l'application pour limiter
+-- les recoupements par horodatage (voir docs/SECURITE-RGPD.md).
 CREATE TABLE signups (
     id         INTEGER PRIMARY KEY,
     slot_id    INTEGER NOT NULL REFERENCES slots(id) ON DELETE CASCADE,

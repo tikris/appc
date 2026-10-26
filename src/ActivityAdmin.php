@@ -219,8 +219,9 @@ final class ActivityAdmin
     private function postPoll(Activity $a, string $action, \Closure $text, \Closure $done): string
     {
         $polls = new PollRepo($this->in->db);
+        $locked = 'Des participants ont déjà répondu : les réponses proposées ne peuvent plus être modifiées.';
         if (in_array($action, ['add_option', 'update_option', 'delete_option'], true) && $polls->respondents($a->id) > 0) {
-            return 'Des participants ont déjà répondu : les réponses proposées ne peuvent plus être modifiées.';
+            return $locked;
         }
         $label = $text('label');
         $labelError = ($label === '' || mb_strlen($label) > 100) ? 'Le libellé doit faire entre 1 et 100 caractères.' : null;
@@ -244,12 +245,16 @@ final class ActivityAdmin
                 if ($pos < 1 || $pos > 99) {
                     return 'La position doit être comprise entre 1 et 99.';
                 }
-                $polls->updateOption((int) $option['id'], $label, $pos);
+                if (!$polls->updateOption($a->id, (int) $option['id'], $label, $pos)) {
+                    return $locked; // une réponse est arrivée entre-temps
+                }
                 $done('option_updated');
 
             case 'delete_option':
                 $option = $polls->option($a->id, (int) ($_POST['option_id'] ?? 0)) ?? abort(404, 'Réponse introuvable.');
-                $polls->deleteOption((int) $option['id']);
+                if (!$polls->deleteOption($a->id, (int) $option['id'])) {
+                    return $locked;
+                }
                 $done('option_deleted');
         }
         abort(400, 'Action inconnue.');

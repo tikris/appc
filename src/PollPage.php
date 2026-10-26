@@ -67,7 +67,9 @@ final class PollPage
         if (!$a->multiple && count($chosen) > 1) {
             return 'Une seule réponse est possible.';
         }
-        $polls->answer($a->id, (int) $me['id'], $chosen);
+        if (!$polls->answer($a->id, (int) $me['id'], $chosen)) {
+            return 'Le sondage vient d\'être modifié : rechargez la page et réessayez.';
+        }
         Http::redirect(url($this->in->slug . '/activite/' . $a->id) . '?m=answered');
     }
 

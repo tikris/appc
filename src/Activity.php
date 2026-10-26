@@ -116,14 +116,18 @@ final class Activity
         return ($this->closesAt !== null && $now >= $this->closesAt) ? 'closed' : 'open';
     }
 
+    /** Participation possible : publiée et dans sa fenêtre d'ouverture (l'aperçu d'un brouillon reste en lecture seule). */
     public function isOpen(): bool
     {
-        return $this->phase() === 'open';
+        return $this->isPublished() && $this->phase() === 'open';
     }
 
     /** Message affiché quand une action exige une activité ouverte. */
     public function notOpenMessage(): string
     {
+        if (!$this->isPublished()) {
+            return 'Cette activité est un brouillon : la participation sera possible une fois publiée.';
+        }
         return self::KINDS[$this->kind][$this->phase() === 'before' ? 'before' : 'closed'] . '.';
     }
 

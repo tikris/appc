@@ -114,6 +114,9 @@ final class ConsultationPage
                 if ($myId === null) {
                     abort(403, 'Seul un participant disposant d\'un code peut ajouter une note.');
                 }
+                if (!$a->isPublished()) { // les notes restent possibles après la clôture, jamais sur un brouillon
+                    abort(403, $a->notOpenMessage());
+                }
                 $idea = $findIdea();
                 $body = clean_text($_POST['body'] ?? '');
                 $error = null;

@@ -48,11 +48,21 @@ final class PollRepo
         return array_map('intval', $st->fetchAll(\PDO::FETCH_COLUMN));
     }
 
-    /** Remplace les réponses du participant (les options doivent avoir été vérifiées). */
-    public function answer(int $activityId, int $participantId, array $optionIds): void
+    /**
+     * Remplace les réponses du participant. Retourne false, sans rien écrire, si une des options n'existe plus
+     * (supprimée par l'administrateur entre l'affichage et l'envoi).
+     */
+    public function answer(int $activityId, int $participantId, array $optionIds): bool
     {
         $this->db->exec('BEGIN IMMEDIATE');
         try {
+            $in = implode(',', array_fill(0, count($optionIds), '?'));
+            $st = $this->db->prepare("SELECT COUNT(*) FROM poll_options WHERE activity_id = ? AND id IN ($in)");
+            $st->execute([$activityId, ...$optionIds]);
+            if ((int) $st->fetchColumn() !== count($optionIds)) {
+                $this->db->exec('ROLLBACK');
+                return false;
+            }
             $this->db->prepare(
                 'DELETE FROM poll_answers WHERE participant_id = ? AND option_id IN (SELECT id FROM poll_options WHERE activity_id = ?)'
             )->execute([$participantId, $activityId]);
@@ -65,6 +75,7 @@ final class PollRepo
             $this->db->exec('ROLLBACK');
             throw $e;
         }
+        return true;
     }
 
     public function addOption(int $activityId, string $label): void
@@ -75,14 +86,34 @@ final class PollRepo
             ->execute([$activityId, $label, (int) $st->fetchColumn()]);
     }
 
-    public function updateOption(int $id, string $label, int $position): void
+    /** Renomme ou déplace une option ; false si un participant a déjà répondu (les options sont alors verrouillées). */
+    public function updateOption(int $activityId, int $id, string $label, int $position): bool
     {
-        $this->db->prepare('UPDATE poll_options SET label = ?, position = ? WHERE id = ?')->execute([$label, $position, $id]);
+        return $this->whileUnanswered($activityId, fn() => $this->db->prepare('UPDATE poll_options SET label = ?, position = ? WHERE id = ?')
+            ->execute([$label, $position, $id]));
     }
 
-    public function deleteOption(int $id): void
+    /** Supprime une option ; false si un participant a déjà répondu (sa réponse serait effacée sans bruit). */
+    public function deleteOption(int $activityId, int $id): bool
     {
-        $this->db->prepare('DELETE FROM poll_options WHERE id = ?')->execute([$id]);
+        return $this->whileUnanswered($activityId, fn() => $this->db->prepare('DELETE FROM poll_options WHERE id = ?')->execute([$id]));
+    }
+
+    /** Exécute $write sous verrou, seulement si personne n'a encore répondu : la vérification ne peut pas être contredite entre-temps. */
+    private function whileUnanswered(int $activityId, \Closure $write): bool
+    {
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $ok = $this->respondents($activityId) === 0;
+            if ($ok) {
+                $write();
+            }
+            $this->db->exec('COMMIT');
+        } catch (\Throwable $e) {
+            $this->db->exec('ROLLBACK');
+            throw $e;
+        }
+        return $ok;
     }
 
     /** Export CSV : une ligne par option. */

@@ -83,8 +83,10 @@ final class SignupRepo
             $error = $already ? 'Vous êtes déjà inscrit(e) sur ce créneau.'
                 : ($taken >= (int) $slot['capacity'] ? 'Ce créneau est complet.' : null);
             if ($error === null) {
+                // Date arrondie au jour : une heure précise permettrait de recouper l'inscription avec les votes
+                // et réponses horodatés du même participant (voir SECURITE-RGPD).
                 $this->db->prepare('INSERT INTO signups (slot_id, owner_hash, name, created_at) VALUES (?, ?, ?, ?)')
-                    ->execute([$slot['id'], $ownerHash, $name, time()]);
+                    ->execute([$slot['id'], $ownerHash, $name, (int) strtotime('today')]);
             }
             $this->db->exec('COMMIT');
         } catch (\Throwable $e) {
@@ -130,7 +132,7 @@ final class SignupRepo
         foreach ($this->slots($activityId) as $s) {
             $when = $s['starts_at'] !== null ? date('Y-m-d H:i', (int) $s['starts_at']) : '';
             foreach ($by[(int) $s['id']] ?? [] as $g) {
-                $rows[] = [$s['label'], $when, $g['name'], date('Y-m-d H:i', (int) $g['created_at'])];
+                $rows[] = [$s['label'], $when, $g['name'], date('Y-m-d', (int) $g['created_at'])];
             }
             for ($i = (int) $s['taken']; $i < (int) $s['capacity']; $i++) {
                 $rows[] = [$s['label'], $when, '(place libre)', ''];
