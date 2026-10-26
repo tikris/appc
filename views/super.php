@@ -20,16 +20,16 @@ $self = url('_super');
   <?php if ($instances): ?>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Adresse</th><th>Nom</th><th>État</th><th>Idées</th><th>Votes</th><th>Participants</th><th>Créée</th><th></th></tr></thead>
+    <thead><tr><th>Adresse</th><th>Nom</th><th>Activités</th><th>Participants</th><th>Idées</th><th>Votes</th><th>Créée</th><th></th></tr></thead>
     <tbody>
     <?php foreach ($instances as $i): ?>
       <tr>
         <td><a href="<?= h(url($i['slug'] . '/')) ?>"><code>/<?= h($i['slug']) ?>/</code></a></td>
         <td><?= h($i['name']) ?></td>
-        <td><?= ['before' => 'pas encore ouverte', 'open' => 'ouverte', 'closed' => 'close'][$i['phase']] ?></td>
+        <td><?= (int) $i['stats']['activities'] ?></td>
+        <td><?= (int) $i['stats']['participants'] ?></td>
         <td><?= (int) $i['stats']['ideas'] ?></td>
         <td><?= (int) $i['stats']['votes'] ?></td>
-        <td><?= (int) $i['stats']['participants'] ?></td>
         <td><?= $i['created'] ? h(fmt_date($i['created'])) : '—' ?></td>
         <td>
           <form method="post" action="<?= h($self) ?>">
@@ -58,6 +58,14 @@ $self = url('_super');
     <input type="text" id="slug" name="slug" pattern="[a-z0-9][a-z0-9\-]{1,38}[a-z0-9]" placeholder="ecole-etienne-marcel" required>
     <label for="name">Nom affiché</label>
     <input type="text" id="name" name="name" maxlength="80" placeholder="École Étienne Marcel" required>
+    <label for="template">Modèle</label>
+    <select id="template" name="template">
+      <?php foreach (\Appc\Templates::labels() as $key => $label): ?>
+        <option value="<?= h($key) ?>"<?= $key === \Appc\Templates::DEFAULT ? ' selected' : '' ?>><?= h($label) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <p class="muted small">Le modèle prépare un portail prêt à l'emploi : message d'accueil, annonce de bienvenue, une consultation
+      publiée avec ses thèmes, et un sondage et des inscriptions en brouillon que l'administrateur adapte. Tout reste modifiable.</p>
     <div class="btn-row"><button type="submit">Créer l'instance</button></div>
   </form>
 </div>

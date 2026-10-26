@@ -8,14 +8,6 @@ final class Instance
 {
     public const RESERVED = ['_super', 'assets', 'public', 'admin', 'static', 'api', 'acces', 'robots.txt', 'favicon.ico'];
 
-    /** Thèmes proposés à la création (modifiables ensuite par l'administrateur). */
-    private const DEFAULT_THEMES = [
-        ['Rythmes scolaires', 1],
-        ['Organisation périscolaire', 2],
-        ['Encadrement des enfants', 3],
-        ['Protection des enfants', 4],
-    ];
-
     /** @var array<string,string> */
     private array $settings = [];
 
@@ -59,8 +51,12 @@ final class Instance
         return $slugs;
     }
 
-    public static function create(string $slug, string $name, string $adminPassword): self
+    /** Crée une instance remplie selon un modèle d'établissement (voir Templates). */
+    public static function create(string $slug, string $name, string $adminPassword, string $template = Templates::DEFAULT): self
     {
+        if (!Templates::valid($template)) {
+            throw new \InvalidArgumentException('Modèle inconnu : ' . implode(', ', array_keys(Templates::ALL)) . '.');
+        }
         if (!self::validSlug($slug)) {
             throw new \InvalidArgumentException('Identifiant invalide : 3 à 40 caractères, minuscules, chiffres et tirets (ex. ecole-etienne-marcel).');
         }
@@ -81,13 +77,11 @@ final class Instance
             'admin_hash'     => password_hash($adminPassword, PASSWORD_DEFAULT),
             'must_change_pw' => '1',
             'created_at'     => (string) time(),
+            'intro'          => Templates::ALL[$template]['intro'],
         ] as $k => $v) {
             $set->execute([$k, $v]);
         }
-        $theme = $db->prepare('INSERT INTO themes (name, color, position) VALUES (?, ?, ?)');
-        foreach (self::DEFAULT_THEMES as $i => [$themeName, $color]) {
-            $theme->execute([$themeName, $color, $i + 1]);
-        }
+        Templates::apply($db, $template);
         $db->commit();
 
         return new self($slug, $db);
@@ -113,97 +107,9 @@ final class Instance
         return $this->setting('name', $this->slug) ?? $this->slug;
     }
 
+    /** Message d'accueil du tableau de bord. */
     public function intro(): string
     {
         return $this->setting('intro', '') ?? '';
-    }
-
-    /* Limites reprises du portail d'origine (/cc/) : titre 3 à 120, description facultative jusqu'à 400, note 600. */
-    public function titleMin(): int
-    {
-        return 3;
-    }
-
-    public function titleMax(): int
-    {
-        return 120;
-    }
-
-    public function descMax(): int
-    {
-        return 400;
-    }
-
-    public function noteMax(): int
-    {
-        return 600;
-    }
-
-    /** Nombre maximal de propositions par participant (anti-spam). */
-    public function maxIdeas(): int
-    {
-        return max(1, min(50, (int) $this->setting('max_ideas', '5')));
-    }
-
-    /** Date d'ouverture des propositions et des votes (null = ouvert dès la création). */
-    public function opensAt(): ?int
-    {
-        $v = $this->setting('opens_at', '');
-        return ($v !== null && $v !== '') ? (int) $v : null;
-    }
-
-    /** Date de fin prévue des votes (null = pas d'échéance). */
-    public function closesAt(): ?int
-    {
-        $v = $this->setting('closes_at', '');
-        return ($v !== null && $v !== '') ? (int) $v : null;
-    }
-
-    /** Date de clôture manuelle (null = non clôturé à la main). */
-    public function closedAt(): ?int
-    {
-        $v = $this->setting('closed_at', '');
-        return ($v !== null && $v !== '') ? (int) $v : null;
-    }
-
-    /** « before » (pas encore ouvert), « open » ou « closed ». La clôture manuelle l'emporte sur tout. */
-    public function phase(): string
-    {
-        if ($this->closedAt() !== null) {
-            return 'closed';
-        }
-        $now = time();
-        $start = $this->opensAt();
-        if ($start !== null && $now < $start) {
-            return 'before';
-        }
-        $end = $this->closesAt();
-        return ($end !== null && $now >= $end) ? 'closed' : 'open';
-    }
-
-    public function isOpen(): bool
-    {
-        return $this->phase() === 'open';
-    }
-
-    /** Message affiché quand une action exige un scrutin ouvert. */
-    public function notOpenMessage(): string
-    {
-        return $this->phase() === 'before'
-            ? 'La période de vote n\'a pas encore commencé.'
-            : 'La période de vote est terminée.';
-    }
-
-    /** Jours entiers restant avant l'échéance (comme le « J-N » du portail d'origine) ; null sans échéance. */
-    public function daysLeft(): ?int
-    {
-        $end = $this->closesAt();
-        return $end === null ? null : max(0, intdiv($end - time(), 86400));
-    }
-
-    /** Date à afficher pour « clôturée le … ». */
-    public function closedOn(): ?int
-    {
-        return $this->closedAt() ?? $this->closesAt();
     }
 }

@@ -51,10 +51,12 @@ cp config/config.example.php config/config.php
 
 ```bash
 php bin/create-instance.php master "Portail maître APPC"
-php bin/create-instance.php ecole-etienne-marcel "École Étienne Marcel"
+php bin/create-instance.php ecole-etienne-marcel "École Étienne Marcel" elementaire
 ```
 
-Chaque commande affiche le **mot de passe administrateur provisoire** (à transmettre au représentant, qui le changera à sa première connexion). Sans SSH : utiliser la console `https://appc.paris/_super` (même résultat, mot de passe affiché une seule fois).
+Le troisième argument facultatif choisit le **modèle d'établissement** : `elementaire` (par défaut), `maternelle`, `college` ou `vide` (voir `src/Templates.php`). Le modèle prépare un portail prêt à l'emploi : message d'accueil, annonce de bienvenue, une consultation publiée avec ses thèmes, un sondage et des inscriptions en brouillon.
+
+Chaque commande affiche le **mot de passe administrateur provisoire** (à transmettre au représentant, qui le changera à sa première connexion). Sans SSH : utiliser la console `https://appc.paris/_super` (même résultat, choix du modèle dans une liste, mot de passe affiché une seule fois).
 
 Règles pour l'identifiant (`slug`) : 3 à 40 caractères, minuscules, chiffres et tirets ; les mots réservés (`admin`, `assets`, `public`, `acces`…) sont refusés.
 
@@ -63,6 +65,7 @@ Règles pour l'identifiant (`slug`) : 3 à 40 caractères, minuscules, chiffres 
 - [ ] `https://appc.paris/` affiche la page d'accueil
 - [ ] `https://appc.paris/master/` redirige vers `/master/acces` (portail protégé)
 - [ ] `https://appc.paris/master/admin` : connexion administrateur, puis création d'un code et entrée avec ce code depuis un autre navigateur
+- [ ] Publier le sondage du modèle, y répondre depuis l'autre navigateur, vérifier le résultat ; puis le repasser en brouillon
 - [ ] Les fichiers sensibles ne sont **pas** servis : `https://appc.paris/data/master.sqlite`, `/config/config.php`, `/src/App.php`, `/migrations/001_init.sql` répondent 403 ou 404
 - [ ] Les cookies portent les drapeaux `Secure`, `HttpOnly`, `SameSite=Lax` (outils de développement du navigateur)
 - [ ] En-têtes présents : `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`
@@ -112,6 +115,7 @@ cd appc && git pull
 ```
 
 - Les migrations de schéma (`migrations/NNN_*.sql`) sont appliquées automatiquement à la première ouverture de chaque base. **Sauvegarder avant** toute mise à jour qui ajoute une migration.
+- **Migration 002 (activités)** : la consultation unique de chaque instance existante devient l'activité « Propositions des parents », publiée, avec ses dates, son plafond de propositions, ses thèmes, idées, votes et notes. Les codes et le mot de passe administrateur sont inchangés. Les instances existantes ne reçoivent pas le contenu d'exemple des modèles (réservé aux nouvelles instances). L'ancien export `/<slug>/admin/export.csv` est remplacé par un export par activité.
 - Aucun build, aucun gestionnaire de dépendances.
 - `config/config.php` et `data/` ne sont pas touchés par `git pull`.
 

@@ -5,13 +5,15 @@ namespace Appc;
 
 /**
  * Routeur :
- *   /                          page d'accueil
- *   /_super                    console super-administrateur (création des instances)
- *   /<slug>/                   portail (accès par code)
- *   /<slug>/acces              saisie du code
- *   /<slug>/quitter            oublier ce navigateur (POST)
- *   /<slug>/admin              espace administrateur de l'établissement
- *   /<slug>/admin/export.csv   export des données
+ *   /                                       page d'accueil
+ *   /_super                                 console super-administrateur (création des instances)
+ *   /<slug>/                                tableau de bord du portail (accès par code)
+ *   /<slug>/activite/<id>                   une activité : consultation, sondage ou inscriptions
+ *   /<slug>/acces                           saisie du code
+ *   /<slug>/quitter                         oublier ce navigateur (POST)
+ *   /<slug>/admin                           espace administrateur de l'établissement
+ *   /<slug>/admin/activite/<id>             gestion d'une activité
+ *   /<slug>/admin/activite/<id>/export.csv  export des données d'une activité
  */
 final class App
 {
@@ -54,19 +56,30 @@ final class App
         }
 
         $portal = new Portal($in);
-        $admin = new AdminPanel($in);
+        $id = self::activityId($rest);
+        $a = $id === null ? '' : (string) $id; // les segments vides sont filtrés : '' ne correspond jamais
         match (true) {
-            $rest === ['acces']                    => $portal->access(),
-            $rest === ['quitter']                  => $portal->leave(),
-            $rest === ['admin']                    => $admin->handle(),
-            $rest === ['admin', 'export.csv']      => $admin->export(),
-            default                                => abort(404, 'Page introuvable.'),
+            $rest === ['acces']                               => $portal->access(),
+            $rest === ['quitter']                             => $portal->leave(),
+            $rest === ['admin']                               => (new AdminPanel($in))->handle(),
+            $rest === ['activite', $a]                        => $portal->activity((int) $id),
+            $rest === ['admin', 'activite', $a]               => (new ActivityAdmin($in))->handle((int) $id),
+            $rest === ['admin', 'activite', $a, 'export.csv'] => (new ActivityAdmin($in))->export((int) $id),
+            default                                           => abort(404, 'Page introuvable.'),
         };
+    }
+
+    /** Identifiant d'activité dans /activite/<id> ou /admin/activite/<id>[/…] ; null s'il est absent ou mal formé. */
+    private static function activityId(array $rest): ?int
+    {
+        $i = array_search('activite', $rest, true);
+        $v = $i === false ? null : ($rest[$i + 1] ?? null);
+        return is_string($v) && preg_match('/^[1-9][0-9]{0,8}$/', $v) ? (int) $v : null;
     }
 
     private static function fail(int $status, string $message): never
     {
-        $titles = [400 => 'Requête invalide', 403 => 'Accès refusé', 404 => 'Page introuvable', 422 => 'Données invalides', 429 => 'Trop de requêtes'];
+        $titles = [400 => 'Requête invalide', 403 => 'Accès refusé', 404 => 'Page introuvable', 409 => 'Action impossible', 422 => 'Données invalides', 429 => 'Trop de requêtes'];
         render('error', [
             'pageTitle' => $titles[$status] ?? 'Erreur',
             'heading'   => 'Parents à Paris Centre',

@@ -3,17 +3,11 @@ declare(strict_types=1);
 
 namespace Appc;
 
-/** Côté participants : saisie du code, liste des idées, votes, notes de contexte. */
+/** Côté participants : saisie du code, tableau de bord, et aiguillage vers la page de chaque activité. */
 final class Portal
 {
-    private const FLASH = [
-        'idea_added'   => 'Votre proposition a été publiée.',
-        'idea_updated' => 'Proposition modifiée.',
-        'idea_deleted' => 'Proposition supprimée.',
-        'voted'        => 'Votre vote a été enregistré.',
-        'note_saved'   => 'Note de contexte enregistrée.',
-        'note_deleted' => 'Note supprimée.',
-    ];
+    /** Nombre maximal de lignes de l'agenda du tableau de bord. */
+    private const AGENDA_MAX = 8;
 
     public function __construct(private Instance $in)
     {
@@ -56,195 +50,112 @@ final class Portal
         Http::redirect(url($this->in->slug . '/acces'));
     }
 
-    // ── Portail ─────────────────────────────────────────────────────────────
+    // ── Tableau de bord ─────────────────────────────────────────────────────
 
     public function index(): never
     {
         $in = $this->in;
-        $me = Access::participant($in);
-        $admin = Access::isAdmin($in);
-        if ($me === null && !$admin) {
-            Http::redirect(url($in->slug . '/acces'));
+        [$me, $admin] = $this->viewer();
+        if (Http::method() !== 'GET') {
+            abort(400, 'Action inconnue.');
         }
         $repo = new Repo($in->db);
-        $ctx = null;
-        if (Http::method() === 'POST') {
-            Csrf::check();
-            $ctx = $this->post($repo, $me, $admin);
+        $activities = ['open' => [], 'before' => [], 'closed' => []];
+        foreach ($repo->activities(true) as $a) {
+            $activities[$a->phase()][] = $a;
         }
-        $this->show($repo, $me, $admin, $ctx);
+
+        render('home', [
+            'in'         => $in,
+            'pageTitle'  => $in->name(),
+            'heading'    => $in->name(),
+            'headerLink' => [url($in->slug . '/admin'), $admin ? 'Administration' : 'Admin'],
+            'me'         => $me,
+            'admin'      => $admin,
+            'activities' => $activities,
+            'counts'     => $repo->activityCounts(),
+            'done'       => $me !== null ? $this->participation($activities['open'], $me) : [],
+            'agenda'     => $this->agenda($repo, [...$activities['open'], ...$activities['before']]),
+            'posts'      => $repo->posts(),
+        ]);
     }
 
-    /** Traite une action. Redirige en cas de succès ; retourne le contexte d'erreur du formulaire sinon. */
-    private function post(Repo $repo, ?array $me, bool $admin): array
+    /**
+     * Événements datés à partir d'aujourd'hui et échéances des activités, du plus proche au plus lointain.
+     * @param list<Activity> $activities activités publiées, ouvertes ou à venir
+     * @return list<array{at:int,title:string,location:string,href:string}>
+     */
+    private function agenda(Repo $repo, array $activities): array
     {
-        $in = $this->in;
-        $themeFilter = (int) ($_POST['theme'] ?? 0);
-        $done = static function (string $flash, ?int $ideaId = null) use ($in, $themeFilter): never {
-            $q = '?m=' . $flash . ($themeFilter > 0 ? '&theme=' . $themeFilter : '');
-            Http::redirect(url($in->slug . '/') . $q . ($ideaId !== null ? '#idea-' . $ideaId : ''));
-        };
-        $myId = $me !== null ? (int) $me['id'] : null;
-
-        switch ((string) ($_POST['action'] ?? '')) {
-            case 'add_idea':
-                if ($myId === null) {
-                    abort(403, 'Seul un participant disposant d\'un code peut proposer une idée.');
-                }
-                if (!$in->isOpen()) {
-                    abort(403, $in->notOpenMessage());
-                }
-                $old = $this->ideaInput();
-                $error = $this->validateIdea($repo, $old);
-                if ($error === null && $repo->countIdeasBy($myId) >= $in->maxIdeas()) {
-                    $error = sprintf('Vous avez atteint la limite de %d propositions par participant.', $in->maxIdeas());
-                }
-                if ($error !== null) {
-                    return ['form' => 'add', 'error' => $error, 'old' => $old, 'status' => 422];
-                }
-                $id = $repo->addIdea($old['theme_id'], $old['title'], $old['description'], $myId);
-                $done('idea_added', $id);
-
-                // no break : $done() ne retourne jamais
-            case 'edit_idea':
-                $idea = $repo->idea((int) ($_POST['idea_id'] ?? 0)) ?? abort(404, 'Proposition introuvable.');
-                if ($myId === null || (int) $idea['participant_id'] !== $myId) {
-                    abort(403, 'Vous ne pouvez modifier que vos propres propositions.');
-                }
-                if (!$in->isOpen()) {
-                    abort(403, $in->notOpenMessage());
-                }
-                $old = $this->ideaInput();
-                $error = $this->validateIdea($repo, $old);
-                if ($error !== null) {
-                    return ['form' => 'edit:' . $idea['id'], 'error' => $error, 'old' => $old, 'status' => 422];
-                }
-                $repo->updateIdea((int) $idea['id'], $old['theme_id'], $old['title'], $old['description']);
-                $done('idea_updated', (int) $idea['id']);
-
-            case 'delete_idea':
-                $idea = $repo->idea((int) ($_POST['idea_id'] ?? 0)) ?? abort(404, 'Proposition introuvable.');
-                $isOwner = $myId !== null && (int) $idea['participant_id'] === $myId;
-                if (!$admin && !($isOwner && $in->isOpen())) {
-                    abort(403, 'Suppression non autorisée.');
-                }
-                $repo->deleteIdea((int) $idea['id']);
-                $done('idea_deleted');
-
-            case 'vote':
-                if ($myId === null) {
-                    abort(403, 'Seul un participant disposant d\'un code peut voter.');
-                }
-                if (!$in->isOpen()) {
-                    abort(403, $in->notOpenMessage());
-                }
-                $idea = $repo->idea((int) ($_POST['idea_id'] ?? 0)) ?? abort(404, 'Proposition introuvable.');
-                if ((int) $idea['participant_id'] === $myId) {
-                    abort(403, 'Vous ne pouvez pas voter pour votre propre proposition.');
-                }
-                $repo->vote((int) $idea['id'], $myId);
-                $done('voted', (int) $idea['id']);
-
-            case 'save_note':
-                if ($myId === null) {
-                    abort(403, 'Seul un participant disposant d\'un code peut ajouter une note.');
-                }
-                $idea = $repo->idea((int) ($_POST['idea_id'] ?? 0)) ?? abort(404, 'Proposition introuvable.');
-                $body = clean_text($_POST['body'] ?? '');
-                $error = null;
-                if ($body === '') {
-                    $error = 'La note ne peut pas être vide.';
-                } elseif (mb_strlen($body) > $in->noteMax()) {
-                    $error = sprintf('La note est limitée à %d caractères.', $in->noteMax());
-                }
-                if ($error !== null) {
-                    return ['form' => 'note:' . $idea['id'], 'error' => $error, 'old' => ['body' => $body], 'status' => 422];
-                }
-                $repo->saveNote((int) $idea['id'], $myId, $body);
-                $done('note_saved', (int) $idea['id']);
-
-            case 'delete_note':
-                $note = $repo->note((int) ($_POST['note_id'] ?? 0)) ?? abort(404, 'Note introuvable.');
-                if (!$admin && !($myId !== null && (int) $note['participant_id'] === $myId)) {
-                    abort(403, 'Suppression non autorisée.');
-                }
-                $repo->deleteNote((int) $note['id']);
-                $done('note_deleted', (int) $note['idea_id']);
+        $slug = $this->in->slug;
+        $items = [];
+        foreach ($repo->upcomingEvents((int) strtotime('today')) as $p) {
+            $items[] = ['at' => (int) $p['event_at'], 'title' => $p['title'], 'location' => $p['location'], 'href' => '#post-' . $p['id']];
         }
-        abort(400, 'Action inconnue.');
-    }
-
-    /** @return array{theme_id:int,title:string,description:string} */
-    private function ideaInput(): array
-    {
-        return [
-            'theme_id'    => (int) ($_POST['theme_id'] ?? 0),
-            'title'       => clean_text($_POST['title'] ?? ''),
-            'description' => clean_text($_POST['description'] ?? ''),
-        ];
-    }
-
-    private function validateIdea(Repo $repo, array $v): ?string
-    {
-        $in = $this->in;
-        if ($repo->theme($v['theme_id']) === null) {
-            return 'Choisissez un thème.';
-        }
-        $len = mb_strlen($v['title']);
-        if ($len < $in->titleMin() || $len > $in->titleMax()) {
-            return sprintf('Le titre doit faire entre %d et %d caractères.', $in->titleMin(), $in->titleMax());
-        }
-        if (mb_strlen($v['description']) > $in->descMax()) {
-            return sprintf('La description est limitée à %d caractères.', $in->descMax());
-        }
-        return null;
-    }
-
-    private function show(Repo $repo, ?array $me, bool $admin, ?array $ctx): never
-    {
-        $in = $this->in;
-        $themes = $repo->themes();
-
-        $active = null;
-        $wanted = (int) ($_GET['theme'] ?? 0);
-        foreach ($themes as $t) {
-            if ((int) $t['id'] === $wanted) {
-                $active = $t;
+        foreach ($activities as $a) {
+            $href = url($slug . '/activite/' . $a->id);
+            if ($a->phase() === 'before') {
+                $items[] = ['at' => (int) $a->opensAt, 'title' => 'Ouverture : ' . $a->title, 'location' => '', 'href' => $href];
+            } elseif ($a->closesAt !== null) {
+                $items[] = ['at' => $a->closesAt, 'title' => 'Clôture : ' . $a->title, 'location' => '', 'href' => $href];
             }
         }
+        usort($items, static fn(array $x, array $y): int => $x['at'] <=> $y['at']);
+        return array_slice($items, 0, self::AGENDA_MAX);
+    }
 
-        $ideas = $repo->ideas($active !== null ? (int) $active['id'] : null, $me !== null ? (int) $me['id'] : 0);
-        $counts = $repo->ideaCountsByTheme();
-
-        $themeNumber = [];
-        foreach ($themes as $i => $t) {
-            $themeNumber[(int) $t['id']] = $i + 1;
+    /**
+     * Ce que le participant a déjà fait dans les activités ouvertes (badge sur le tableau de bord).
+     * @param list<Activity> $open
+     * @return array<int,string> activity_id => libellé
+     */
+    private function participation(array $open, array $me): array
+    {
+        $db = $this->in->db;
+        $out = [];
+        foreach ($open as $a) {
+            $done = match ($a->kind) {
+                'poll'   => (new PollRepo($db))->answersOf($a->id, (int) $me['id']) !== [] ? 'Vous avez répondu' : null,
+                'signup' => (new SignupRepo($db))->mySlotIds($a->id, Access::pseudonym('signup')) !== [] ? 'Vous êtes inscrit(e)' : null,
+                default  => null,
+            };
+            if ($done !== null) {
+                $out[$a->id] = $done;
+            }
         }
+        return $out;
+    }
 
-        $flashKey = is_string($_GET['m'] ?? null) ? $_GET['m'] : '';
-        $form = $ctx['form'] ?? null;
+    // ── Page d'une activité ─────────────────────────────────────────────────
 
-        render('portal', [
-            'in'          => $in,
-            'pageTitle'   => $in->name(),
-            'heading'     => $in->name(),
-            'me'          => $me,
-            'admin'       => $admin,
-            'open'        => $in->isOpen(),
-            'phase'       => $in->phase(),
-            'themes'      => $themes,
-            'themeNumber' => $themeNumber,
-            'counts'      => $counts,
-            'total'       => array_sum($counts),
-            'active'      => $active,
-            'ideas'       => $ideas,
-            'notes'       => $repo->notesByIdea(array_column($ideas, 'id')),
-            'flash'       => self::FLASH[$flashKey] ?? null,
-            'form'        => $form,
-            'formError'   => $ctx['error'] ?? null,
-            'old'         => $ctx['old'] ?? [],
-            'editId'      => str_starts_with((string) $form, 'edit:') ? (int) substr($form, 5) : (int) ($_GET['edit'] ?? 0),
-            'noteId'      => str_starts_with((string) $form, 'note:') ? (int) substr($form, 5) : (int) ($_GET['note'] ?? 0),
-        ], $ctx['status'] ?? 200);
+    public function activity(int $id): never
+    {
+        [$me, $admin] = $this->viewer();
+        $a = (new Repo($this->in->db))->activity($id);
+        if ($a === null || (!$a->isPublished() && !$admin)) {
+            abort(404, 'Cette activité n\'existe pas ou n\'est pas encore publiée.');
+        }
+        if (Http::method() === 'POST') {
+            Csrf::check();
+        }
+        match ($a->kind) {
+            'consultation' => (new ConsultationPage($this->in, $a))->handle($me, $admin),
+            'poll'         => (new PollPage($this->in, $a))->handle($me, $admin),
+            'signup'       => (new SignupPage($this->in, $a))->handle($me, $admin),
+        };
+    }
+
+    /**
+     * Participant courant et statut administrateur ; sans l'un ni l'autre, renvoie vers la saisie du code.
+     * @return array{0:?array,1:bool}
+     */
+    private function viewer(): array
+    {
+        $me = Access::participant($this->in);
+        $admin = Access::isAdmin($this->in);
+        if ($me === null && !$admin) {
+            Http::redirect(url($this->in->slug . '/acces'));
+        }
+        return [$me, $admin];
     }
 }

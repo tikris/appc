@@ -1,17 +1,12 @@
 <?php
-use Appc\Csrf;
+use Appc\Activity;
+use Appc\AdminPanel;
 
 $slug = $in->slug;
 $self = url($slug . '/admin');
-$colors = [1 => 'Bleu', 2 => 'Vert', 3 => 'Orange', 4 => 'Violet', 5 => 'Rouge', 6 => 'Cyan', 7 => 'Jaune', 8 => 'Gris'];
-$post = static fn(string $action, array $fields = []): string => Csrf::field()
-    . '<input type="hidden" name="action" value="' . h($action) . '">'
-    . implode('', array_map(
-        static fn($k, $v) => '<input type="hidden" name="' . h((string) $k) . '" value="' . h((string) $v) . '">',
-        array_keys($fields),
-        $fields
-    ));
 $now = time();
+$n = static fn(int $k, string $one, string $many): string => $k . ' ' . ($k > 1 ? $many : $one);
+$p = $editPost ?? ['id' => 0, 'title' => '', 'body' => '', 'event_at' => null, 'location' => '', 'pinned' => 0];
 ?>
 
 <?php if ($flash): ?><div class="notice"><?= h($flash) ?></div><?php endif; ?>
@@ -23,24 +18,92 @@ $now = time();
 <div class="card">
   <h2>📊 Vue d'ensemble</h2>
   <p>
-    <strong><?= (int) $stats['ideas'] ?></strong> proposition(s) ·
-    <strong><?= (int) $stats['votes'] ?></strong> vote(s) ·
-    <strong><?= (int) $stats['notes'] ?></strong> note(s) de contexte ·
-    <strong><?= (int) $stats['participants'] ?></strong> participant(s) entré(s) avec un code
+    <strong><?= (int) $stats['participants'] ?></strong> participant(s) entré(s) avec un code ·
+    <strong><?= (int) $stats['activities'] ?></strong> activité(s) ·
+    <strong><?= (int) $stats['posts'] ?></strong> annonce(s)
   </p>
-  <p>État : <strong><?= ['before' => 'pas encore ouvert', 'open' => 'ouvert', 'closed' => 'clos'][$phase] ?></strong>
-    <?php if ($phase === 'before'): ?>(ouverture : <?= h(fmt_datetime((int) $in->opensAt())) ?>)<?php endif; ?>
-    <?php if ($in->closesAt() !== null): ?>(échéance : <?= h(fmt_datetime($in->closesAt())) ?>)<?php endif; ?>
-  </p>
-  <div class="btn-row">
-    <?php if ($phase !== 'closed'): ?>
-      <form method="post" action="<?= h($self) ?>"><?= $post('close_now') ?>
-        <button type="submit" class="danger" data-confirm="Clôturer les votes maintenant ? Plus aucune proposition ni vote ne sera possible.">Clôturer les votes maintenant</button></form>
-    <?php else: ?>
-      <form method="post" action="<?= h($self) ?>"><?= $post('reopen') ?><button type="submit">Rouvrir les votes</button></form>
-    <?php endif; ?>
-    <a class="btn secondary" href="<?= h(url($slug . '/admin/export.csv')) ?>">Exporter (CSV)</a>
+  <p class="muted small">Pour donner l'accès aux parents, créez un code dans « Codes d'accès » ci-dessous et diffusez-le.</p>
+</div>
+
+<!-- ── Activités ────────────────────────────────────────────────────────── -->
+<div class="card">
+  <h2>🗂️ Activités</h2>
+  <?php if ($activities): ?>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Activité</th><th>Type</th><th>État</th><th>Participation</th><th></th></tr></thead>
+    <tbody>
+    <?php foreach ($activities as $a): $c = $counts[$a->id]; ?>
+      <tr class="<?= $a->isPublished() && $a->phase() !== 'closed' ? '' : 'inactive' ?>">
+        <td><a href="<?= h(url($slug . '/admin/activite/' . $a->id)) ?>"><?= h($a->title) ?></a></td>
+        <td><?= $a->icon() ?> <?= h($a->label()) ?></td>
+        <td><?= h($a->stateLabel()) ?></td>
+        <td><?= h(match ($a->kind) {
+            'consultation' => $n($c['ideas'], 'proposition', 'propositions') . ', ' . $n($c['votes'], 'vote', 'votes'),
+            'poll'         => $n($c['respondents'], 'réponse', 'réponses'),
+            'signup'       => $c['signups'] . ' / ' . $c['capacity'] . ' places',
+        }) ?></td>
+        <td><a class="btn secondary btn-sm" href="<?= h(url($slug . '/admin/activite/' . $a->id)) ?>">Gérer</a></td>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
   </div>
+  <?php else: ?>
+    <p class="muted">Aucune activité pour le moment.</p>
+  <?php endif; ?>
+
+  <form method="post" action="<?= h($self) ?>" class="sub-form">
+    <?= post_fields('create_activity') ?>
+    <h3>Créer une activité</h3>
+    <fieldset class="kind-choice">
+      <legend class="muted small">Type</legend>
+      <?php foreach (Activity::KINDS as $kind => $k): ?>
+        <label class="check"><input type="radio" name="kind" value="<?= h($kind) ?>" required>
+          <span><strong><?= $k['icon'] ?> <?= h($k['label']) ?></strong> — <?= h($k['hint']) ?></span></label>
+      <?php endforeach; ?>
+    </fieldset>
+    <label for="a-title">Titre</label>
+    <input type="text" id="a-title" name="title" maxlength="<?= Activity::TITLE_MAX ?>" placeholder="ex. Menus de la cantine, Kermesse de juin…" required>
+    <p class="muted small">L'activité est créée en brouillon : vous la complétez, puis vous la publiez.</p>
+    <div class="btn-row"><button type="submit">Créer</button></div>
+  </form>
+</div>
+
+<!-- ── Annonces et agenda ───────────────────────────────────────────────── -->
+<div class="card" id="annonces">
+  <h2>📢 Annonces et agenda</h2>
+  <?php foreach ($posts as $row): ?>
+    <div class="post-row">
+      <span><?= $row['pinned'] ? '📌 ' : '' ?><strong><?= h($row['title']) ?></strong>
+        <span class="muted small"><?= $row['event_at'] !== null ? '📅 ' . h(fmt_day((int) $row['event_at'])) : 'publiée le ' . h(fmt_date((int) $row['created_at'])) ?></span></span>
+      <span class="post-actions">
+        <a class="btn secondary btn-sm" href="<?= h($self . '?post=' . (int) $row['id']) ?>#annonce-form">Modifier</a>
+        <form method="post" action="<?= h($self) ?>"><?= post_fields('delete_post', ['post_id' => (int) $row['id']]) ?>
+          <button type="submit" class="secondary btn-sm" data-confirm="Supprimer cette annonce ?">Supprimer</button></form>
+      </span>
+    </div>
+  <?php endforeach; ?>
+  <?php if (!$posts): ?><p class="muted">Aucune annonce pour le moment.</p><?php endif; ?>
+
+  <form method="post" action="<?= h($self) ?>" class="sub-form" id="annonce-form">
+    <?= post_fields('save_post', ['post_id' => (int) $p['id']]) ?>
+    <h3><?= $p['id'] ? 'Modifier l\'annonce' : 'Publier une annonce' ?></h3>
+    <label for="p-title">Titre</label>
+    <input type="text" id="p-title" name="title" maxlength="<?= AdminPanel::POST_TITLE_MAX ?>" value="<?= h($p['title']) ?>" placeholder="ex. Conseil d'école du 2e trimestre" required>
+    <label for="p-body">Texte (facultatif)</label>
+    <textarea id="p-body" name="body" maxlength="<?= AdminPanel::POST_BODY_MAX ?>" data-counter="p-body-len"><?= h($p['body']) ?></textarea>
+    <div class="char-hint"><span id="p-body-len">0</span>/<?= AdminPanel::POST_BODY_MAX ?></div>
+    <label for="p-event">Date de l'événement (facultatif : l'annonce figure alors à l'agenda)</label>
+    <input type="datetime-local" id="p-event" name="event_at" value="<?= h(input_datetime($p['event_at'] !== null ? (int) $p['event_at'] : null)) ?>">
+    <label for="p-loc">Lieu (facultatif)</label>
+    <input type="text" id="p-loc" name="location" maxlength="<?= AdminPanel::POST_LOCATION_MAX ?>" value="<?= h($p['location']) ?>" placeholder="ex. Préau de l'école">
+    <label class="check"><input type="checkbox" name="pinned" value="1"<?= $p['pinned'] ? ' checked' : '' ?>> Épingler en tête des annonces</label>
+    <div class="btn-row">
+      <button type="submit"><?= $p['id'] ? 'Enregistrer' : 'Publier' ?></button>
+      <?php if ($p['id']): ?><a class="btn secondary" href="<?= h($self) ?>#annonces">Annuler</a><?php endif; ?>
+    </div>
+  </form>
 </div>
 
 <!-- ── Codes d'accès ────────────────────────────────────────────────────── -->
@@ -68,7 +131,7 @@ $now = time();
         <td><?= h($state) ?></td>
         <td>
           <?php if (!$revoked): ?>
-            <form method="post" action="<?= h($self) ?>"><?= $post('revoke_code', ['code_id' => (int) $c['id']]) ?>
+            <form method="post" action="<?= h($self) ?>"><?= post_fields('revoke_code', ['code_id' => (int) $c['id']]) ?>
               <button type="submit" class="secondary btn-sm" data-confirm="Révoquer ce code ? Les personnes entrées avec ce code perdront l'accès.">Révoquer</button></form>
           <?php endif; ?>
         </td>
@@ -83,7 +146,7 @@ $now = time();
   <?php endif; ?>
 
   <form method="post" action="<?= h($self) ?>" class="sub-form">
-    <?= $post('create_code') ?>
+    <?= post_fields('create_code') ?>
     <h3>Créer un code</h3>
     <label for="code-label">Étiquette (facultatif, ex. « Parents CE2 »)</label>
     <input type="text" id="code-label" name="label" maxlength="60">
@@ -97,57 +160,14 @@ $now = time();
 
 <!-- ── Réglages ─────────────────────────────────────────────────────────── -->
 <div class="card">
-  <h2>⚙️ Réglages</h2>
+  <h2>⚙️ Réglages du portail</h2>
   <form method="post" action="<?= h($self) ?>">
-    <?= $post('save_settings') ?>
+    <?= post_fields('save_settings') ?>
     <label for="s-name">Nom affiché</label>
     <input type="text" id="s-name" name="name" maxlength="80" value="<?= h($in->name()) ?>" required>
-    <label for="s-intro">Message d'accueil (facultatif)</label>
+    <label for="s-intro">Message d'accueil du tableau de bord (facultatif)</label>
     <textarea id="s-intro" name="intro" maxlength="600"><?= h($in->intro()) ?></textarea>
-    <label for="s-start">Début des propositions et des votes (facultatif : vide = ouvert tout de suite)</label>
-    <input type="datetime-local" id="s-start" name="opens_at" value="<?= h(input_datetime($in->opensAt())) ?>">
-    <label for="s-end">Fin des propositions et des votes (facultatif)</label>
-    <input type="datetime-local" id="s-end" name="closes_at" value="<?= h(input_datetime($in->closesAt())) ?>">
-    <label for="s-max">Propositions maximum par participant</label>
-    <input type="text" inputmode="numeric" id="s-max" name="max_ideas" pattern="[0-9]+" value="<?= $in->maxIdeas() ?>" required>
     <div class="btn-row"><button type="submit">Enregistrer</button></div>
-  </form>
-</div>
-
-<!-- ── Thèmes ───────────────────────────────────────────────────────────── -->
-<div class="card">
-  <h2>🏷️ Thèmes</h2>
-  <?php foreach ($themes as $t): $n = (int) ($themeCount[(int) $t['id']] ?? 0); ?>
-    <form method="post" action="<?= h($self) ?>" class="theme-row">
-      <?= $post('update_theme', ['theme_id' => (int) $t['id']]) ?>
-      <input type="text" name="position" value="<?= (int) $t['position'] ?>" inputmode="numeric" pattern="[0-9]+" class="narrow" aria-label="Position" title="Position">
-      <input type="text" name="name" value="<?= h($t['name']) ?>" maxlength="60" aria-label="Nom du thème" required>
-      <select name="color" aria-label="Couleur">
-        <?php foreach ($colors as $k => $label): ?>
-          <option value="<?= $k ?>"<?= (int) $t['color'] === $k ? ' selected' : '' ?>><?= h($label) ?></option>
-        <?php endforeach; ?>
-      </select>
-      <span class="muted small"><?= $n ?> idée(s)</span>
-      <button type="submit" class="btn-sm">Enregistrer</button>
-    </form>
-    <?php if ($n === 0 && count($themes) > 1): ?>
-      <form method="post" action="<?= h($self) ?>" class="theme-delete">
-        <?= $post('delete_theme', ['theme_id' => (int) $t['id']]) ?>
-        <button type="submit" class="secondary btn-sm" data-confirm="Supprimer ce thème ?">Supprimer « <?= h($t['name']) ?> »</button>
-      </form>
-    <?php endif; ?>
-  <?php endforeach; ?>
-
-  <form method="post" action="<?= h($self) ?>" class="sub-form">
-    <?= $post('add_theme') ?>
-    <h3>Ajouter un thème</h3>
-    <label for="t-name">Nom</label>
-    <input type="text" id="t-name" name="name" maxlength="60" required>
-    <label for="t-color">Couleur</label>
-    <select id="t-color" name="color">
-      <?php foreach ($colors as $k => $label): ?><option value="<?= $k ?>"><?= h($label) ?></option><?php endforeach; ?>
-    </select>
-    <div class="btn-row"><button type="submit">Ajouter</button></div>
   </form>
 </div>
 
@@ -155,7 +175,7 @@ $now = time();
 <div class="card">
   <h2>🔒 Mot de passe</h2>
   <form method="post" action="<?= h($self) ?>">
-    <?= $post('change_password') ?>
+    <?= post_fields('change_password') ?>
     <label for="pw-cur">Mot de passe actuel</label>
     <input type="password" id="pw-cur" name="current_password" autocomplete="current-password" required>
     <label for="pw-new">Nouveau mot de passe (10 caractères minimum)</label>
@@ -167,5 +187,5 @@ $now = time();
 </div>
 
 <form method="post" action="<?= h($self) ?>" class="logout">
-  <?= $post('logout') ?><button type="submit" class="secondary">Se déconnecter</button>
+  <?= post_fields('logout') ?><button type="submit" class="secondary">Se déconnecter</button>
 </form>
